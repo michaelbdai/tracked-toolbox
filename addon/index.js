@@ -75,6 +75,60 @@ export function localCopy(memo, initializer) {
   };
 }
 
+export function localInitializedCopy(memo, initializer) {
+  assert(
+    `@localCopy() must be given a memo path or memo function as its first argument, received \`${String(
+      memo
+    )}\``,
+    typeof memo === 'string' || typeof memo === 'function'
+  );
+  deprecate('Using a memoization function with @localCopy has been deprecated. Consider using @trackedReset instead.', typeof memo !== 'function', {
+    id: 'local-copy-memo-fn',
+    for: 'tracked-toolbox',
+    until: '2.0.0',
+  });
+
+  let metas = new WeakMap();
+
+  return (_prototype, key) => {
+    let memoFn =
+      typeof memo === 'function'
+        ? (obj, last) => memo.call(obj, obj, key, last)
+        : (obj) => get(obj, memo);
+    let isUpdated = false;
+
+    return {
+      get() {
+        let meta = getOrCreateMeta(this, metas, initializer);
+        let { prevRemote } = meta;
+
+        let incomingValue = memoFn(this, prevRemote);
+
+        if (prevRemote !== incomingValue) {
+          // If the incoming value is not the same as the previous incoming value,
+          // update the local value to match the new incoming value, and update
+          // the previous incoming value.
+          meta.value = meta.prevRemote = incomingValue;
+        }
+
+        return meta.value;
+      },
+
+      set(value) {
+        if (!metas.has(this)) {
+          let meta = getOrCreateMeta(this, metas, initializer);
+          meta.prevRemote = memoFn(this);
+          meta.value = value;
+          return;
+        }
+
+        getOrCreateMeta(this, metas, initializer).value = value;
+        isUpdated = true;
+      },
+    };
+  };
+}
+
 export function trackedReset(memoOrConfig) {
   assert(
     `@trackedReset() must be given a memo path, a memo function, or config object with a memo path or function as its first argument, received \`${String(
